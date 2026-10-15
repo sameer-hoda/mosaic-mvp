@@ -1,7 +1,31 @@
+# Mosaic on Railway: ONE container, TWO processes, ONE volume.
+#
+# Processes (see supervisord.conf — supervisord is PID 1 via Dockerfile CMD):
+#   - bridge: Go WhatsApp bridge. Public wizard + /health on $PORT
+#     (Railway injects PORT), internal API on 8081.
+#   - brain:  `python3 -m hermes_bot.brain`, event receiver on 7000.
+# Both share /data (STORE_DIR=/data): messages.db, whatsapp.db,
+# mosaic.db, *.log. WITHOUT the volume, pairing + state are lost
+# on every restart.
+#
+# Railway dashboard settings (NOT expressible in this file — set these
+# on the service / template):
+#   - Volume mount: volume mounted at /data
+#   - Template variables: GEMINI_API_KEY (Flash-Lite extraction),
+#     TZ (default Asia/Kolkata when unset)
+#   - PORT is provided by Railway automatically.
+#
+# First boot / QR setup flow (kept): open the service URL, set the
+# setup password, paste the Gemini key (or set GEMINI_API_KEY), scan
+# the WhatsApp QR at / — state persists in /data/setup.json.
+
 [build]
 builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-healthcheckPath = "/health"
 restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+healthcheckPath = "/health"
+healthcheckTimeout = 300
 numReplicas = 1

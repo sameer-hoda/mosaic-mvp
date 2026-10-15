@@ -15,6 +15,34 @@ HOST = "127.0.0.1"
 PORT = int(os.getenv("BRAIN_PORT", "7000"))
 
 
+def route_event(chat_jid: str, sender: str, content: str,
+                msg_id=None) -> str:
+    """One bridge event → outcome string. Slash first, then worker-f.
+
+    Pure dispatch (no HTTP): do_POST calls this, and tests call it
+    directly with stubbed engines.
+    """
+    outcome = "ignored"
+    try:  # Worker C: slash commands answered privately to self-chat.
+        from hermes_bot.slash import get_engine
+        outcome = get_engine().handle_event(
+            chat_jid or "", sender or "", content or "", msg_id,
+        )
+        print(f"[brain] slash outcome={outcome}", flush=True)
+    except Exception as exc:
+        print(f"[brain] slash dispatch failed: {exc}", flush=True)
+    if outcome == "ignored":
+        try:  # Worker F: draft/send/pings from the owner's self-chat.
+            from hermes_bot import worker_f
+            outcome = worker_f.handle_event(
+                chat_jid or "", sender or "", content or "",
+            )
+            print(f"[brain] worker-f outcome={outcome}", flush=True)
+        except Exception as exc:
+            print(f"[brain] worker-f dispatch failed: {exc}", flush=True)
+    return outcome
+
+
 class Handler(BaseHTTPRequestHandler):
     def _json(self, code: int, payload: dict) -> None:
         body = json.dumps(payload).encode()
@@ -47,29 +75,8 @@ class Handler(BaseHTTPRequestHandler):
             ),
             flush=True,
         )
-        outcome = "ignored"
-        try:  # Worker C: slash commands answered privately to self-chat.
-            from hermes_bot.slash import get_engine
-            outcome = get_engine().handle_event(
-                event.get("chat_jid", ""),
-                event.get("sender", ""),
-                event.get("content", ""),
-                event.get("msg_id"),
-            )
-            print(f"[brain] slash outcome={outcome}", flush=True)
-        except Exception as exc:
-            print(f"[brain] slash dispatch failed: {exc}", flush=True)
-        if outcome == "ignored":
-            try:  # Worker F: draft/send/pings from the owner's self-chat.
-                from hermes_bot import worker_f
-                outcome = worker_f.handle_event(
-                    event.get("chat_jid", ""),
-                    event.get("sender", ""),
-                    event.get("content", ""),
-                )
-                print(f"[brain] worker-f outcome={outcome}", flush=True)
-            except Exception as exc:
-                print(f"[brain] worker-f dispatch failed: {exc}", flush=True)
+        route_event(event.get("chat_jid", ""), event.get("sender", ""),
+                    event.get("content", ""), event.get("msg_id"))
         self._json(200, {"ok": True})
 
     def log_message(self, *args):  # keep supervisord logs quiet

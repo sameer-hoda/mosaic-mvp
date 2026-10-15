@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from hermes_bot import supervisor, config
+from hermes_bot import cycle as _cycle
 from hermes_bot.sender import enqueue_to_mechat, start_flush_thread
 from hermes_bot.db import get_own_phone
 from hermes_bot.onboarding import send_welcome
@@ -37,6 +38,42 @@ def _startup_prune() -> None:
             print(f"[mosaic] retention prune: {counts}", flush=True)
     except Exception as exc:
         print(f"[mosaic] retention prune skipped ({exc})", flush=True)
+
+
+def _owner_names() -> list:
+    raw = os.getenv("OWNER_NAMES", "")
+    return [n.strip() for n in raw.split(",") if n.strip()]
+
+
+def _cycle_loop():
+    """Periodic scan → extract → brief → draft pass.
+
+    Dry-run unless MOSAIC_LIVE=1: the brief text is only enqueued to
+    self-chat when live, otherwise it is logged print-only. Any failure
+    is logged and the loop continues on the next tick.
+    """
+    while _running:
+        time.sleep(_cycle.cycle_interval_s())
+        if not _running:
+            break
+        try:
+            conn = _store.connect()
+            _store.init_db(conn)
+            try:
+                live = os.getenv("MOSAIC_LIVE", "") == "1"
+                report = _cycle.run_cycle(
+                    conn, owner_names=_owner_names(), dry_run=not live,
+                    deliver=enqueue_to_mechat if live else None)
+                print(
+                    "[mosaic] cycle: "
+                    f"{report['messages']} msgs, {report['items']} items, "
+                    f"brief #{report['brief_no']} "
+                    f"({'delivered' if report['delivered'] else 'dry-run'})",
+                    flush=True)
+            finally:
+                conn.close()
+        except Exception as exc:
+            print(f"[mosaic] cycle skipped ({exc})", flush=True)
 
 
 def _drain_bridge_output(proc):
@@ -93,6 +130,12 @@ def main():
     print("[mosaic] Bridge ready. Starting services...")
     start_flush_thread()
     _startup_prune()
+
+    if _cycle.cycle_enabled():
+        threading.Thread(target=_cycle_loop, daemon=True,
+                         name="mosaic-cycle").start()
+        print("[mosaic] Pipeline cycle enabled "
+              f"(every {_cycle.cycle_interval_s():.0f}s).")
 
     global _bridge_watch
     _bridge_watch = hardening.BridgeWatch(probe=_bridge_up,
