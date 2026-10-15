@@ -9,7 +9,8 @@ from pathlib import Path
 
 from hermes_bot import supervisor, config
 from hermes_bot.sender import enqueue_to_mechat, start_flush_thread
-from hermes_bot.db import get_mechat_chat_jid, get_own_phone
+from hermes_bot.db import get_own_phone
+from hermes_bot.onboarding import send_welcome
 
 _running = True
 
@@ -86,9 +87,8 @@ def main():
             was_ready = True
             print("[mosaic] Setup complete! Mosaic is READY.")
             try:
-                mechat = get_mechat_chat_jid()
                 phone = get_own_phone()
-                enqueue_to_mechat(f"🤖 *Mosaic* · Ready\nID: `{phone}`\n/help for commands")
+                send_welcome(text=f"🤖 *Mosaic* · Ready\nID: `{phone}`\n/help for commands")
             except Exception as e:
                 print(f"[mosaic] Welcome message failed: {e}")
         

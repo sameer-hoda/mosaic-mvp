@@ -27,6 +27,8 @@ def _get_outbox_db():
 
 
 def enqueue_message(jid: str, text: str):
+    if jid.endswith("@g.us"):
+        raise ValueError(f"refusing to address a group chat: {jid}")
     conn = _get_outbox_db()
     conn.execute(
         "INSERT INTO outbox (jid, text, queued_at) VALUES (?, ?, ?)",

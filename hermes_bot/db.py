@@ -58,29 +58,12 @@ def get_mechat_chat_jid() -> str:
         return setup["mechat_jid"]
     if config.MECHAT_JID:
         return config.MECHAT_JID
-    own_phone = get_own_phone()
-    conn = _connect()
+    from hermes_bot import identity as _identity
 
-    row = conn.execute(
-        "SELECT lid FROM wa.whatsmeow_lid_map WHERE pn = ?",
-        (own_phone,),
-    ).fetchone()
-    if row:
-        lid = row["lid"].split(":")[0]
-        conn.close()
-        return f"{lid}@lid"
-
-    row2 = conn.execute(
-        "SELECT lid FROM wa.whatsmeow_device WHERE jid LIKE ?",
-        (f"{own_phone}%",),
-    ).fetchone()
-    if row2 and row2["lid"]:
-        lid = row2["lid"].split(":")[0]
-        conn.close()
-        return f"{lid}@lid"
-
-    conn.close()
-    return f"{own_phone}@s.whatsapp.net"
+    jid, _how = _identity.resolve_self_chat()
+    if jid:
+        return jid
+    return f"{get_own_phone()}@s.whatsapp.net"
 
 
 def get_non_archived_groups() -> list[dict]:
@@ -267,19 +250,10 @@ def resolve_contact_name(jid: str) -> str:
 
 
 def is_message_from_owner(chat_jid: str, sender_jid: str) -> bool:
-    own_phone = get_own_phone()
-    sender_user = sender_jid.split("@")[0].split(":")[0]
-    if sender_user == own_phone:
-        return True
-    conn = _connect()
-    row = conn.execute(
-        "SELECT pn FROM wa.whatsmeow_lid_map WHERE lid LIKE ?",
-        (f"{sender_user}%",),
-    ).fetchone()
-    conn.close()
-    if row and row["pn"] == own_phone:
-        return True
-    return False
+    from hermes_bot import identity as _identity
+
+    # PN and LID forms of the owner resolve to one owner; groups never do.
+    return _identity.is_owner_jid(sender_jid) or _identity.is_owner_jid(chat_jid)
 
 
 def resolve_contact_by_name(name_hint: str) -> list[dict]:

@@ -456,6 +456,31 @@ func (store *MessageStore) StoreMediaInfo(id, chatJID, url string, mediaKey, fil
 	return err
 }
 
+// LastMessageAt returns the newest message timestamp for a chat as RFC3339,
+// or "" when the chat has no messages. Feeds the setup page's
+// "last message N min ago" line.
+func (store *MessageStore) LastMessageAt(chatJID string) string {
+	var raw sql.NullString
+	err := store.db.QueryRow(
+		"SELECT MAX(timestamp) FROM messages WHERE chat_jid = ?", chatJID,
+	).Scan(&raw)
+	if err != nil || !raw.Valid || raw.String == "" {
+		return ""
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02T15:04:05-07:00",
+	}
+	for _, layout := range layouts {
+		if t, e := time.Parse(layout, raw.String); e == nil {
+			return t.Format(time.RFC3339)
+		}
+	}
+	return raw.String
+}
+
 func (store *MessageStore) GetMediaInfo(id, chatJID string) (string, string, string, []byte, []byte, []byte, uint64, error) {
 	var mediaType, filename, url string
 	var mediaKey, fileSHA256, fileEncSHA256 []byte
@@ -1211,7 +1236,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handleSetupState(client *whatsmeow.Client) http.HandlerFunc {
+func handleSetupState(client *whatsmeow.Client, messageStore *MessageStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		setupMu.RLock()
 		state := setupData.State
@@ -1237,6 +1262,11 @@ func handleSetupState(client *whatsmeow.Client) http.HandlerFunc {
 		}
 		if mechatName != "" {
 			resp["mechat_name"] = mechatName
+		}
+		if mechatJID != "" && messageStore != nil {
+			if last := messageStore.LastMessageAt(mechatJID); last != "" {
+				resp["last_message_at"] = last
+			}
 		}
 		if state == string(StateNeedsQR) {
 			qrMu.Lock()
@@ -2033,7 +2063,7 @@ func main() {
 	publicMux.HandleFunc("/setup/login", handleLogin)
 	publicMux.HandleFunc("/setup/info", handleSetupInfo)
 	publicMux.HandleFunc("/setup/set-password", handleSetPassword)
-	publicMux.HandleFunc("/setup/state", withAuth(handleSetupState(client)))
+	publicMux.HandleFunc("/setup/state", withAuth(handleSetupState(client, messageStore)))
 	publicMux.HandleFunc("/setup/gemini-key", withAuth(handleGeminiKey))
 	publicMux.HandleFunc("/setup/pairing/regenerate", withAuth(handlePairingRegenerate))
 	publicMux.HandleFunc("/setup/repair-mechat", withAuth(handleRepairMechat))
@@ -2124,14 +2154,17 @@ func main() {
 	fmt.Println("\n✓ Connected to WhatsApp! Type 'help' for commands.")
 
 	// ── Post-connection state update ──
+	// Self-chat only: the owner's own chat is always <PN>@s.whatsapp.net,
+	// so pairing completes on connect with no manual step and no group.
 	setupMu.Lock()
 	setupData.OwnPhone = client.Store.ID.User
 	setupData.OwnJID = client.Store.ID.String()
-	if setupData.State == string(StateNeedsQR) {
-		setupData.State = string(StateNeedsMeChat)
-		generatePairingCode()
+	if setupData.MeChatJID == "" {
+		setupData.MeChatJID = client.Store.ID.User + "@s.whatsapp.net"
+		setupData.MeChatName = "Me"
+		setupData.PairedAt = time.Now().Format(time.RFC3339)
 	}
-	if setupData.State == string(StateNeedsMeChat) && setupData.MeChatJID != "" {
+	if setupData.State == string(StateNeedsQR) || setupData.State == string(StateNeedsMeChat) {
 		setupData.State = string(StateReady)
 	}
 	setupData.UpdatedAt = time.Now().Format(time.RFC3339)
