@@ -47,6 +47,17 @@ class Handler(BaseHTTPRequestHandler):
             ),
             flush=True,
         )
+        try:  # Worker C: slash commands answered privately to self-chat.
+            from hermes_bot.slash import get_engine
+            outcome = get_engine().handle_event(
+                event.get("chat_jid", ""),
+                event.get("sender", ""),
+                event.get("content", ""),
+                event.get("msg_id"),
+            )
+            print(f"[brain] slash outcome={outcome}", flush=True)
+        except Exception as exc:
+            print(f"[brain] slash dispatch failed: {exc}", flush=True)
         self._json(200, {"ok": True})
 
     def log_message(self, *args):  # keep supervisord logs quiet
