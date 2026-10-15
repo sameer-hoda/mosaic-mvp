@@ -61,6 +61,8 @@ def test_no_group_creation():
     for path in list(ROOT.rglob("*.go")) + list(ROOT.rglob("*.py")):
         if ".git" in path.parts or "tests" in path.parts:
             continue
+        if ".venv" in path.parts or "venv" in path.parts:
+            continue  # vendored test deps are not project source
         text = path.read_text(encoding="utf-8", errors="ignore").lower()
         assert "creategroup" not in text, f"group-create in {path}"
         assert "groupcreate" not in text, f"group-create in {path}"
