@@ -47,6 +47,7 @@ class Handler(BaseHTTPRequestHandler):
             ),
             flush=True,
         )
+        outcome = "ignored"
         try:  # Worker C: slash commands answered privately to self-chat.
             from hermes_bot.slash import get_engine
             outcome = get_engine().handle_event(
@@ -58,6 +59,17 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[brain] slash outcome={outcome}", flush=True)
         except Exception as exc:
             print(f"[brain] slash dispatch failed: {exc}", flush=True)
+        if outcome == "ignored":
+            try:  # Worker F: draft/send/pings from the owner's self-chat.
+                from hermes_bot import worker_f
+                outcome = worker_f.handle_event(
+                    event.get("chat_jid", ""),
+                    event.get("sender", ""),
+                    event.get("content", ""),
+                )
+                print(f"[brain] worker-f outcome={outcome}", flush=True)
+            except Exception as exc:
+                print(f"[brain] worker-f dispatch failed: {exc}", flush=True)
         self._json(200, {"ok": True})
 
     def log_message(self, *args):  # keep supervisord logs quiet

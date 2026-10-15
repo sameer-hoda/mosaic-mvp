@@ -294,6 +294,8 @@ var (
 
 var ownerPhone string
 var mechatJID string
+var lastDisconnectAt time.Time
+var disconnectNoticed bool
 var recentlySentMu sync.Mutex
 var recentlySent = make(map[string]time.Time)
 
@@ -950,6 +952,7 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 				os.Remove(storePath("whatsapp.db"))
 				os.Remove(storePath("messages.db"))
 				os.Remove(storePath("hermes.db"))
+				os.Remove(storePath("mosaic.db"))
 				os.Remove(storePath("session.json"))
 				os.Remove(storePath("pending_messages.json"))
 
@@ -1105,6 +1108,13 @@ func requireBridgeToken(w http.ResponseWriter, r *http.Request) bool {
 func startInternalServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
 	mux := http.NewServeMux()
 
+	// Unauthenticated liveness for the local supervisor only; the
+	// listener itself is loopback-bound (see caller).
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+
 	mux.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1162,6 +1172,64 @@ func startInternalServer(client *whatsmeow.Client, messageStore *MessageStore, p
 		json.NewEncoder(w).Encode(SendMessageResponse{
 			Success: success,
 			Message: message,
+		})
+	})
+
+	mux.HandleFunc("/api/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !requireBridgeToken(w, r) {
+			return
+		}
+		var req struct {
+			ChatJID   string `json:"chat_jid"`
+			MessageID string `json:"message_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request format", http.StatusBadRequest)
+			return
+		}
+		if req.ChatJID == "" || req.MessageID == "" {
+			http.Error(w, "Chat JID and message ID are required", http.StatusBadRequest)
+			return
+		}
+		chatJID, err := types.ParseJID(req.ChatJID)
+		if err != nil {
+			http.Error(w, "Invalid chat JID", http.StatusBadRequest)
+			return
+		}
+		type deleteResult struct {
+			success bool
+			message string
+		}
+		done := make(chan deleteResult, 1)
+		go func() {
+			_, err := client.RevokeMessage(context.Background(), chatJID, types.MessageID(req.MessageID))
+			if err != nil {
+				done <- deleteResult{false, fmt.Sprintf("Revoke failed: %v", err)}
+				return
+			}
+			done <- deleteResult{true, "Message revoked"}
+		}()
+		var success bool
+		var message string
+		select {
+		case result := <-done:
+			success = result.success
+			message = result.message
+		case <-time.After(10 * time.Second):
+			success = false
+			message = "Delete timed out"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if !success {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": success,
+			"message": message,
 		})
 	})
 
@@ -1410,6 +1478,7 @@ func handleReset(client *whatsmeow.Client) http.HandlerFunc {
 		os.Remove(storePath("whatsapp.db"))
 		os.Remove(storePath("messages.db"))
 		os.Remove(storePath("hermes.db"))
+		os.Remove(storePath("mosaic.db"))
 		os.Remove(storePath("session.json"))
 		os.Remove(storePath("pending_messages.json"))
 		os.Remove(storePath("setup.json"))
@@ -2034,6 +2103,17 @@ func main() {
 
 		case *events.Connected:
 			logger.Infof("Connected to WhatsApp")
+			if disconnectNoticed {
+				disconnectNoticed = false
+				fmt.Printf("[bridge] reconnect notice: back online after disconnect at %s\n",
+					lastDisconnectAt.Format(time.RFC3339))
+			}
+
+		case *events.Disconnected:
+			lastDisconnectAt = time.Now()
+			disconnectNoticed = true
+			fmt.Printf("[bridge] disconnect notice: websocket closed at %s, retrying\n",
+				lastDisconnectAt.Format(time.RFC3339))
 
 		case *events.LoggedOut:
 			logger.Warnf("Device logged out")
