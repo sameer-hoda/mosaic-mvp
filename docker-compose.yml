@@ -1,0 +1,17 @@
+services:
+  hermes:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - hermes_data:/data
+    environment:
+      - PORT=8080
+      # Optional overrides:
+      # - GEMINI_API_KEY=...
+      # - SETUP_PASSWORD=...
+      # - HERMES_TIMEZONE=Asia/Kolkata
+
+volumes:
+  hermes_data:

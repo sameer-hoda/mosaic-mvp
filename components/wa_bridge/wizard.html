@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mosaic Setup</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #0d1117; color: #c9d1d9; min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+}
+.container {
+  width: 100%; max-width: 420px; padding: 24px;
+}
+.card {
+  background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+  padding: 32px; text-align: center;
+}
+h1 { font-size: 24px; color: #58a6ff; margin-bottom: 8px; }
+h2 { font-size: 18px; color: #c9d1d9; margin-bottom: 16px; }
+p { color: #8b949e; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
+input[type=password], input[type=text] {
+  width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #30363d;
+  background: #0d1117; color: #c9d1d9; font-size: 16px; margin-bottom: 12px;
+  outline: none;
+}
+input:focus { border-color: #58a6ff; }
+.btn {
+  width: 100%; padding: 12px; border-radius: 8px; border: none;
+  font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
+}
+.btn-primary { background: #238636; color: #fff; }
+.btn-primary:hover { background: #2ea043; }
+.btn-danger { background: #da3633; color: #fff; }
+.btn-danger:hover { background: #f85149; }
+.btn-secondary { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+.alert { padding: 10px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.alert-error { background: #490202; color: #f85149; }
+.alert-info { background: #0d2f4b; color: #58a6ff; }
+.hidden { display: none !important; }
+.spinner {
+  width: 36px; height: 36px; border: 3px solid #30363d;
+  border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite;
+  margin: 16px auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.qr-img { max-width: 100%; border-radius: 8px; margin: 12px 0; }
+.code-display {
+  font-family: 'SF Mono', monospace; font-size: 32px; letter-spacing: 4px;
+  background: #0d1117; padding: 16px; border-radius: 8px;
+  border: 2px dashed #58a6ff; margin: 16px 0; color: #58a6ff;
+}
+.code-timer { font-size: 13px; color: #8b949e; margin-bottom: 12px; }
+.status-dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  margin-right: 6px;
+}
+.status-connected { background: #3fb950; }
+.status-disconnected { background: #f85149; }
+.dash-row {
+  display: flex; justify-content: space-between; padding: 8px 0;
+  border-bottom: 1px solid #21262d; font-size: 14px;
+}
+.dash-label { color: #8b949e; }
+.dash-value { color: #c9d1d9; text-align: right; word-break: break-all; }
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7); display: flex; align-items: center;
+  justify-content: center; z-index: 100;
+}
+.modal {
+  background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+  padding: 24px; max-width: 400px; width: 90%;
+}
+.modal h3 { color: #f85149; margin-bottom: 12px; }
+label { font-size: 14px; color: #8b949e; display: block; margin-bottom: 8px; }
+.checkbox-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.checkbox-row input { margin: 0; width: auto; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Set Password (first visit) -->
+  <div id="screen-set-password" class="card hidden">
+    <h1>Mosaic</h1>
+    <h2>Create Console Password</h2>
+    <p>Set a password to secure your Mosaic console. Choose something you'll remember.</p>
+    <input type="password" id="set-pw-input" placeholder="Password (min 6 characters)">
+    <input type="password" id="set-pw-confirm" placeholder="Confirm password">
+    <div id="set-pw-error" class="alert alert-error hidden"></div>
+    <button class="btn btn-primary" onclick="doSetPassword()">Set Password</button>
+    <p style="font-size:12px;margin-top:12px;color:#484f58">
+      After creation, your password is stored securely on the server and survives restarts.
+    </p>
+  </div>
+
+  <!-- Login -->
+  <div id="screen-login" class="card hidden">
+    <h1>Mosaic</h1>
+    <h2>Console Access</h2>
+    <p>Enter your console password.</p>
+    <input type="password" id="login-password" placeholder="Password">
+    <div id="login-error" class="alert alert-error hidden"></div>
+    <button class="btn btn-primary" onclick="doLogin()">Enter</button>
+  </div>
+
+  <!-- API Key -->
+  <div id="screen-apikey" class="card hidden">
+    <h1>Mosaic</h1>
+    <h2>Step 1: Gemini API Key</h2>
+    <p>Get a free API key at <a href="https://aistudio.google.com" target="_blank" style="color:#58a6ff">aistudio.google.com</a></p>
+    <input type="password" id="api-key-input" placeholder="Paste your API key">
+    <div id="apikey-error" class="alert alert-error hidden"></div>
+    <div id="apikey-success" class="alert alert-info hidden">Key validated. Advancing...</div>
+    <button class="btn btn-primary" id="apikey-btn" onclick="submitApiKey()">Validate &amp; Save</button>
+  </div>
+
+  <!-- QR -->
+  <div id="screen-qr" class="card hidden">
+    <h1>Mosaic</h1>
+    <h2>Step 2: Link WhatsApp</h2>
+    <p>Scan this QR code with your WhatsApp app (Settings &rarr; Linked Devices)</p>
+    <div id="qr-container">
+      <div class="spinner" id="qr-spinner"></div>
+      <img id="qr-img" class="qr-img hidden" src="" alt="QR Code">
+      <p id="qr-waiting" style="color:#8b949e">Waiting for QR code...</p>
+    </div>
+  </div>
+
+  <!-- Pairing -->
+  <div id="screen-pairing" class="card hidden">
+    <h1>Mosaic</h1>
+    <h2>Step 3: Pair Your Chat</h2>
+    <p>Send this code from <strong>your own WhatsApp</strong> to any chat (e.g. yourself):</p>
+    <div class="code-display" id="pairing-code">----</div>
+    <p class="code-timer" id="code-timer">Expires in --:--</p>
+    <p style="color:#8b949e; font-size:13px">
+      Send the exact code as a text message to any chat (including yourself).
+      Mosaic will detect it and pair this chat as your assistant chat.
+    </p>
+    <button class="btn btn-primary" id="new-code-btn" onclick="regenerateCode()">New Code</button>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="screen-dashboard" class="card hidden">
+    <h1>Mosaic</h1>
+    <div style="margin-bottom:16px">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text" style="font-size:14px">Connected</span>
+    </div>
+    <div class="dash-row"><span class="dash-label">Chat</span><span class="dash-value" id="dash-chat">-</span></div>
+    <div class="dash-row"><span class="dash-label">Phone</span><span class="dash-value" id="dash-phone">-</span></div>
+    <div class="dash-row"><span class="dash-label">Uptime</span><span class="dash-value" id="dash-uptime">-</span></div>
+    <div class="dash-row"><span class="dash-label">State</span><span class="dash-value" id="dash-state">READY</span></div>
+    <div style="margin-top: 20px">
+      <button class="btn btn-secondary" onclick="repairMechat()">Re-pair Chat</button>
+      <button class="btn btn-danger" id="reset-btn" onclick="showResetModal()">Kill &amp; Reset</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Modal -->
+<div id="reset-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>⚠️ Kill &amp; Reset</h3>
+    <p style="font-size:14px; color:#c9d1d9; margin-bottom:16px">
+      This will log out, delete all data and session. The bridge will restart.
+    </p>
+    <input type="text" id="reset-confirm" placeholder="Type RESET to confirm">
+    <div class="checkbox-row">
+      <input type="checkbox" id="reset-keep-key">
+      <label for="reset-keep-key" style="margin:0; display:inline">Keep Gemini API key</label>
+    </div>
+    <div id="reset-error" class="alert alert-error hidden"></div>
+    <button class="btn btn-danger" onclick="doReset()">Confirm Reset</button>
+    <button class="btn btn-secondary" onclick="hideResetModal()">Cancel</button>
+  </div>
+</div>
+
+<script>
+var authToken = '';
+
+function api(path, method, body) {
+  return fetch(path, {
+    method: method || 'GET',
+    headers: {'Content-Type': 'application/json', 'Cache-Control': 'no-cache'},
+    credentials: 'same-origin',
+    body: body ? JSON.stringify(body) : undefined
+  }).then(r => r.json());
+}
+
+function showScreen(id) {
+  var screens = ['screen-set-password','screen-login','screen-apikey','screen-qr','screen-pairing','screen-dashboard'];
+  screens.forEach(s => document.getElementById(s).classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+function show(el) { el.classList.remove('hidden'); }
+function hide(el) { el.classList.add('hidden'); }
+
+// Set Password (first visit)
+function doSetPassword() {
+  var pw = document.getElementById('set-pw-input').value;
+  var confirm = document.getElementById('set-pw-confirm').value;
+  var err = document.getElementById('set-pw-error');
+  hide(err);
+  if (!pw) { err.textContent = 'Please enter a password'; show(err); return; }
+  if (pw.length < 6) { err.textContent = 'Password must be at least 6 characters'; show(err); return; }
+  if (pw !== confirm) { err.textContent = 'Passwords do not match'; show(err); return; }
+  api('/setup/set-password', 'POST', {password: pw}).then(function(data) {
+    if (data.ok) {
+      showScreen('screen-apikey');
+    } else {
+      err.textContent = data.error || 'Failed to set password';
+      show(err);
+    }
+  }).catch(function() {
+    err.textContent = 'Connection error';
+    show(err);
+  });
+}
+
+// Login
+function doLogin() {
+  var pw = document.getElementById('login-password').value;
+  var err = document.getElementById('login-error');
+  hide(err);
+  api('/setup/login', 'POST', {password: pw}).then(function(data) {
+    if (data.ok) {
+      showScreen('screen-apikey');
+    } else {
+      err.textContent = data.error || 'Invalid code';
+      show(err);
+    }
+  }).catch(function() {
+    err.textContent = 'Connection error';
+    show(err);
+  });
+}
+
+// API Key
+function submitApiKey() {
+  var key = document.getElementById('api-key-input').value;
+  var errEl = document.getElementById('apikey-error');
+  var btn = document.getElementById('apikey-btn');
+  var successEl = document.getElementById('apikey-success');
+  hide(errEl); hide(successEl);
+  if (!key) { errEl.textContent = 'Please enter an API key'; show(errEl); return; }
+  btn.disabled = true; btn.textContent = 'Validating...';
+  api('/setup/gemini-key', 'POST', {api_key: key}).then(function(data) {
+    btn.disabled = false; btn.textContent = 'Validate & Save';
+    if (data.ok) {
+      show(successEl);
+      setTimeout(pollState, 1500);
+    } else {
+      errEl.textContent = data.error || 'Invalid key';
+      show(errEl);
+    }
+  }).catch(function() {
+    btn.disabled = false; btn.textContent = 'Validate & Save';
+    errEl.textContent = 'Connection error'; show(errEl);
+  });
+}
+
+// Pairing code regeneration
+function regenerateCode() {
+  var btn = document.getElementById('new-code-btn');
+  btn.disabled = true;
+  api('/setup/pairing/regenerate', 'POST').then(function(data) {
+    btn.disabled = false;
+    if (data.pairing_code) {
+      document.getElementById('pairing-code').textContent = data.pairing_code;
+      pairingExpiry = Date.now() + 600000;
+    }
+  }).catch(function() { btn.disabled = false; });
+}
+
+// Repair MeChat
+function repairMechat() {
+  api('/setup/repair-mechat', 'POST').then(function(data) {
+    if (data.ok) {
+      document.getElementById('pairing-code').textContent = data.pairing_code || '----';
+      pairingExpiry = Date.now() + 600000;
+    }
+  });
+}
+
+// Reset
+function showResetModal() {
+  document.getElementById('reset-modal').classList.remove('hidden');
+  document.getElementById('reset-confirm').value = '';
+  document.getElementById('reset-error').classList.add('hidden');
+}
+function hideResetModal() {
+  document.getElementById('reset-modal').classList.add('hidden');
+}
+function doReset() {
+  var confirmText = document.getElementById('reset-confirm').value;
+  var keepKey = document.getElementById('reset-keep-key').checked;
+  var errEl = document.getElementById('reset-error');
+  hide(errEl);
+  api('/setup/reset', 'POST', {confirm: confirmText, keep_key: keepKey}).then(function(data) {
+    if (data.restarting) {
+      document.body.innerHTML = '<div class="container"><div class="card"><h1 style="color:#da3633">Resetting...</h1><p>The bridge is restarting. Refresh the page in a few seconds.</p><div class="spinner"></div></div></div>';
+      setTimeout(function() { window.location.reload(); }, 3000);
+    } else if (data.error) {
+      errEl.textContent = data.error; show(errEl);
+    }
+  }).catch(function() {
+    errEl.textContent = 'Connection error'; show(errEl);
+  });
+}
+
+var pairingExpiry = 0;
+var timerInterval = null;
+
+function updateTimer() {
+  var remaining = Math.max(0, Math.floor((pairingExpiry - Date.now()) / 1000));
+  var min = Math.floor(remaining / 60);
+  var sec = remaining % 60;
+  var display = remaining > 0 ? (String(min).padStart(2,'0') + ':' + String(sec).padStart(2,'0')) : 'Expired';
+  document.getElementById('code-timer').textContent = 'Expires in ' + display;
+}
+
+function pollState() {
+  api('/setup/state').then(function(data) {
+    var state = data.state;
+    var connected = data.connected;
+
+    // Determine which screen to show
+    if (state === 'NEEDS_API_KEY') {
+      showScreen('screen-apikey');
+    } else if (state === 'NEEDS_QR') {
+      showScreen('screen-qr');
+    } else if (state === 'NEEDS_MECHAT_PAIR') {
+      showScreen('screen-pairing');
+      if (data.pairing_code) {
+        document.getElementById('pairing-code').textContent = data.pairing_code;
+      }
+      if (data.pairing_expires_at) {
+        pairingExpiry = new Date(data.pairing_expires_at).getTime();
+        updateTimer();
+      }
+    } else if (state === 'READY') {
+      showScreen('screen-dashboard');
+      document.getElementById('dash-chat').textContent = (data.mechat_name || '') + ' (' + (data.mechat_jid || '-') + ')';
+      document.getElementById('dash-phone').textContent = data.own_phone || '-';
+      document.getElementById('dash-uptime').textContent = data.uptime || '-';
+      document.getElementById('dash-state').textContent = state;
+      var dot = document.getElementById('status-dot');
+      dot.className = 'status-dot ' + (connected ? 'status-connected' : 'status-disconnected');
+      document.getElementById('status-text').textContent = connected ? 'Connected' : 'Disconnected';
+    } else if (state === 'RESETTING') {
+      showScreen('screen-qr');
+    }
+
+    // QR handling
+    if (state === 'NEEDS_QR') {
+      var qrImg = document.getElementById('qr-img');
+      var spinner = document.getElementById('qr-spinner');
+      var waiting = document.getElementById('qr-waiting');
+      if (data.qr_data_url) {
+        qrImg.src = data.qr_data_url;
+        show(qrImg);
+        hide(spinner);
+        hide(waiting);
+      } else {
+        hide(qrImg);
+        show(spinner);
+        show(waiting);
+      }
+    }
+  }).catch(function(e) {
+    // Might not be logged in yet
+    var login = document.getElementById('screen-login');
+    if (!login.classList.contains('hidden')) return;
+  });
+}
+
+// Start: show set-password or login depending on whether password already exists
+fetch('/setup/info').then(function(r) { return r.json(); }).then(function(data) {
+  if (data.password_set) {
+    showScreen('screen-login');
+  } else {
+    showScreen('screen-set-password');
+  }
+}).catch(function() {
+  showScreen('screen-login');
+});
+
+// Poll every 2s
+setInterval(function() {
+  updateTimer();
+  var login = document.getElementById('screen-login');
+  var setPw = document.getElementById('screen-set-password');
+  if (!login.classList.contains('hidden') || !setPw.classList.contains('hidden')) return;
+  pollState();
+}, 2000);
+
+// Enter key handlers
+document.getElementById('login-password').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('set-pw-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('set-pw-confirm').focus();
+});
+document.getElementById('set-pw-confirm').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doSetPassword();
+});
+document.getElementById('api-key-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') submitApiKey();
+});
+</script>
+</body>
+</html>

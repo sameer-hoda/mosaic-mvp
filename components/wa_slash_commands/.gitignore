@@ -1,0 +1,36 @@
+# Environments
+.env
+.env.local
+
+# Databases and bridge state
+store/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+slash_cmd.log
+
+# Compiled Python files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Go bridge binaries
+bridge/wa-bridge
+bridge/wa-bridge-*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go Build caches
+.gocache/
+.tmpcgo/
+bridge/.gocache/
+bridge/.tmpcgo/
+
+# Local cache
+cache/
+bridge/.gotmp/

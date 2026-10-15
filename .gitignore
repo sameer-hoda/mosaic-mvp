@@ -1,8 +1,26 @@
+# Sensitive
+.env
+*.db
+store/
+data/
+
+# Python
 __pycache__/
 *.pyc
-.env
-data/
-*.db
-bridge/store/
-node_modules/
+.venv/
+venv/
+
+# Go binary
+wa-bridge
+whatsapp-client
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Internal design docs (may contain real data)
+docs/archive_docs/
