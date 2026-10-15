@@ -11,8 +11,32 @@ from hermes_bot import supervisor, config
 from hermes_bot.sender import enqueue_to_mechat, start_flush_thread
 from hermes_bot.db import get_own_phone
 from hermes_bot.onboarding import send_welcome
+from hermes_bot import hardening, store as _store
 
 _running = True
+_bridge_watch = None
+
+
+def _bridge_up() -> bool:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{config.BRIDGE_URL}/health",
+                                    timeout=1) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _startup_prune() -> None:
+    try:
+        conn = _store.connect()
+        _store.init_db(conn)
+        counts = hardening.prune_retention(conn)
+        conn.close()
+        if sum(counts.values()):
+            print(f"[mosaic] retention prune: {counts}", flush=True)
+    except Exception as exc:
+        print(f"[mosaic] retention prune skipped ({exc})", flush=True)
 
 
 def _drain_bridge_output(proc):
@@ -68,11 +92,23 @@ def main():
 
     print("[mosaic] Bridge ready. Starting services...")
     start_flush_thread()
+    _startup_prune()
+
+    global _bridge_watch
+    _bridge_watch = hardening.BridgeWatch(probe=_bridge_up,
+                                          notify=enqueue_to_mechat)
 
     was_ready = False
     print("[mosaic] All systems go. Waiting for setup to complete...\n")
 
     while _running:
+        try:
+            state_now = _bridge_watch.tick()
+            if state_now in ("down-notice-sent", "recovered-notice-sent"):
+                print(f"[mosaic] bridge watch: {state_now}", flush=True)
+        except Exception:
+            pass
+
         if proc.poll() is not None:
             print("[mosaic] Bridge exited. Restarting...")
             time.sleep(2)

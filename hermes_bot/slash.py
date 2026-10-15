@@ -4,20 +4,17 @@
 Parses ``/catchup /pending /sotu /eli5`` (plus ``/mute /unmute``), analyses
 the target chat, and delivers the answer to the user's self-chat only.
 
-Self-chat resolution reuses Worker B's approach
-(``hermes_bot.db.get_mechat_chat_jid``); the ``MOSAIC_SELF_JID`` env fallback
-below is temporary.
-TODO: drop the MOSAIC_SELF_JID fallback once Worker B's resolution is
-confirmed as the single source of truth on main.
+Self-chat resolution is Worker B's ``hermes_bot.db.get_mechat_chat_jid``
+(setup → env MECHAT_JID → identity PN/LID freshest-wins): the single
+source of truth. There is no other fallback.
 """
 
 import logging
-import os
 import re
 import time
 from typing import Callable, Optional
 
-from hermes_bot import slash_format
+from hermes_bot import config, slash_format
 
 log = logging.getLogger("hermes_bot.slash")
 
@@ -44,13 +41,9 @@ def resolve_self_jid() -> str:
     """Resolve the owner's self-chat JID via Worker B's resolution."""
     try:
         from hermes_bot.db import get_mechat_chat_jid
-        jid = get_mechat_chat_jid()
-        if jid:
-            return jid
+        return get_mechat_chat_jid() or ""
     except Exception:
-        pass
-    # TODO: drop this fallback once Worker B's resolution is confirmed.
-    return os.getenv("MOSAIC_SELF_JID", "")
+        return ""
 
 
 def default_owner_check(chat_jid: str, sender_jid: str) -> bool:
@@ -143,15 +136,21 @@ class ConfirmStore:
 
 def default_deleter(chat_jid: str, msg_id: Optional[str]) -> None:
     """Best-effort invoke-delete via the bridge delete path (2 s budget)."""
+    import os
+
     import requests
-    from hermes_bot import config
     if not msg_id:
         log.warning("slash: deletion impossible (no message id for %s)", chat_jid)
         return
+    headers = {}
+    token = os.getenv("MOSAIC_BRIDGE_TOKEN", "")
+    if token:
+        headers["X-Bridge-Token"] = token
     try:
-        resp = requests.post(
+        resp = requests.delete(
             f"{config.BRIDGE_URL}/api/delete",
             json={"chat_jid": chat_jid, "message_id": msg_id},
+            headers=headers,
             timeout=2,
         )
         if resp.status_code >= 300:
