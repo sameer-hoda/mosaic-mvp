@@ -1,6 +1,6 @@
-"""Worker F: send NB confirm machine — yes-gated, capped, contact-only.
+"""Worker F: send NB confirm machine — yes-gated, capped, guarded sends.
 
-Acceptance: confirm-expiry, send-cap, no-autosend, no-group-post.
+Acceptance: confirm-expiry, send-cap, no-autosend, group needs history.
 """
 
 from hermes_bot import send as snd
@@ -102,13 +102,29 @@ def test_send_cap_30_per_day(monkeypatch):
     assert eng.test_sent == []
 
 
-def test_no_group_post(monkeypatch):
+def test_group_post_needs_owner_history(monkeypatch):
+    monkeypatch.setenv("MOSAIC_LIVE", "1")
+    now = [1000.0]
+    eng = _engine(now, owner_wrote_in_chat=lambda jid: False,
+                  resolve=lambda ref: {
+                      "chat_jid": "family@g.us", "chat_name": "Fam",
+                      "text": "hi"})
+    assert _request(eng) == "rejected-no-owner-history"
+    assert eng.test_sent == []
+
+
+def test_group_post_allowed_after_yes_with_history(monkeypatch):
     monkeypatch.setenv("MOSAIC_LIVE", "1")
     now = [1000.0]
     eng = _engine(now, resolve=lambda ref: {
-        "chat_jid": "family@g.us", "chat_name": "Fam", "text": "hi"})
-    assert _request(eng) == "rejected-group"
-    assert eng.test_sent == []
+        "chat_jid": "family@g.us", "chat_name": "Fam",
+        "text": "hi"})
+    assert _request(eng) == "confirm-pending"
+    now[0] += 10.0
+    outcome = eng.handle_event("owner-self@s.whatsapp.net",
+                               "owner@s.whatsapp.net", "yes")
+    assert outcome == "posted"
+    assert eng.test_sent[-1] == ("family@g.us", "hi")
 
 
 def test_rejects_non_contact_and_no_owner_history():

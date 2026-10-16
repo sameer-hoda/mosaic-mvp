@@ -44,7 +44,8 @@ def test_cursor_advance_consumes_only_new(store_conn):
              sc.list_recent_chats(sc.open_snapshot(), 20)
              if not st.is_muted(store_conn, c["jid"])]
     for jid in chats:
-        assert st.get_cursor(store_conn, jid) != ""
+        if jid in first["per_chat"]:
+            assert st.get_cursor(store_conn, jid) != ""
     second = sc.scan(store_conn, limit_chats=20)
     assert second["messages"] == 0
     assert second["items"] == 0
@@ -83,3 +84,73 @@ def test_llm_called_only_for_gated_threads(store_conn):
     from hermes_bot import extract as ex
     for t in calls:
         assert ex.worth_llm(t)
+
+
+ARCH_A = "11111-111@g.us"
+ARCH_B = "22222-222@g.us"
+
+
+def _snapshot_pair(tmp_path, archived=()):
+    msg = tmp_path / "messages.db"
+    c = sqlite3.connect(str(msg))
+    c.execute("CREATE TABLE chats (jid TEXT, name TEXT, last_message_time TEXT)")
+    c.execute("CREATE TABLE messages (id TEXT, chat_jid TEXT, sender TEXT,"
+              " content TEXT, timestamp TEXT, is_from_me INTEGER)")
+    c.executemany("INSERT INTO chats VALUES (?,?,?)", [
+        (ARCH_A, "Active group", "2026-10-15T10:00:00"),
+        (ARCH_B, "Old archived", "2026-10-15T09:00:00"),
+    ])
+    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?)", [
+        ("m1", ARCH_A, "Rahul", "please send the SOW today?",
+         "2026-10-15T10:00:00", 0),
+        ("m2", ARCH_B, "Spammer", "promo invite!!!",
+         "2026-10-15T09:00:00", 0),
+    ])
+    c.commit()
+    c.close()
+    wa = tmp_path / "whatsapp.db"
+    w = sqlite3.connect(str(wa))
+    w.execute("CREATE TABLE whatsmeow_chat_settings (our_jid TEXT, chat_jid TEXT,"
+              " muted_until INTEGER, pinned INTEGER, archived INTEGER)")
+    for jid in archived:
+        w.execute("INSERT INTO whatsmeow_chat_settings VALUES (NULL,?,NULL,NULL,1)",
+                  (jid,))
+    w.commit()
+    w.close()
+    return str(msg)
+
+
+def test_archived_chats_excluded_from_recent(tmp_path, monkeypatch):
+    monkeypatch.setattr(sc, "SNAPSHOT_PATH", _snapshot_pair(tmp_path, (ARCH_B,)))
+    snap = sc.open_snapshot()
+    try:
+        assert sc.archived_jids(snap) == {ARCH_B}
+        jids = [c["jid"] for c in sc.list_recent_chats(snap, 10)]
+        assert jids == [ARCH_A]
+    finally:
+        snap.close()
+
+
+def test_missing_settings_db_means_no_exclusion(tmp_path, monkeypatch):
+    msg = tmp_path / "messages.db"
+    c = sqlite3.connect(str(msg))
+    c.execute("CREATE TABLE chats (jid TEXT, name TEXT, last_message_time TEXT)")
+    c.execute("INSERT INTO chats VALUES (?,?,?)",
+              (ARCH_A, "Active group", "2026-10-15T10:00:00"))
+    c.commit()
+    c.close()
+    monkeypatch.setattr(sc, "SNAPSHOT_PATH", str(msg))
+    snap = sc.open_snapshot()
+    try:
+        assert sc.archived_jids(snap) == set()
+        assert [c["jid"] for c in sc.list_recent_chats(snap, 10)] == [ARCH_A]
+    finally:
+        snap.close()
+
+
+def test_scan_skips_archived_chats(store_conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(sc, "SNAPSHOT_PATH", _snapshot_pair(tmp_path, (ARCH_B,)))
+    summary = sc.scan(store_conn, limit_chats=10)
+    assert ARCH_B not in summary["per_chat"]
+    assert st.get_cursor(store_conn, ARCH_B) == ""
+    assert st.get_cursor(store_conn, ARCH_A) != ""

@@ -5,12 +5,40 @@ Never writes to the snapshot; state (items, cursors) lives in mosaic.db.
 dry_run=True by default: nothing is ever sent.
 """
 
+import os
 import sqlite3
 
 from hermes_bot import extract as ex
 from hermes_bot import store as st
 
 SNAPSHOT_PATH = "/tmp/mosaic-test/messages.db"
+WHATSAPP_DB_NAME = "whatsapp.db"
+
+
+def archived_jids(snap_conn: sqlite3.Connection) -> set[str]:
+    """JIDs archived in the sibling whatsapp.db (whatsmeow_chat_settings).
+
+    Mirrors v4's excluded_jids: archived=1 means the chat is filed away and
+    must never yield tasks. Missing file/table means no exclusions.
+    """
+    try:
+        main_file = snap_conn.execute("PRAGMA database_list").fetchall()[0][2]
+    except Exception:
+        return set()
+    if not main_file:
+        return set()
+    wa = os.path.join(os.path.dirname(main_file), WHATSAPP_DB_NAME)
+    if not os.path.exists(wa):
+        return set()
+    try:
+        con = sqlite3.connect(f"file:{wa}?mode=ro", uri=True)
+        try:
+            return {r[0] for r in con.execute(
+                "SELECT chat_jid FROM whatsmeow_chat_settings WHERE archived = 1")}
+        finally:
+            con.close()
+    except Exception:
+        return set()
 
 
 def open_snapshot(path: str | None = None) -> sqlite3.Connection:
@@ -23,13 +51,13 @@ def open_snapshot(path: str | None = None) -> sqlite3.Connection:
 
 
 def list_recent_chats(snap_conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
+    excluded = archived_jids(snap_conn)
     rows = snap_conn.execute(
         """SELECT jid, name, last_message_time FROM chats
            WHERE jid LIKE '%@g.us'
-           ORDER BY last_message_time DESC LIMIT ?""",
-        (limit,),
+           ORDER BY last_message_time DESC""",
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [dict(r) for r in rows if r["jid"] not in excluded][:limit]
 
 
 def fetch_new_messages(snap_conn: sqlite3.Connection, chat_jid: str,
@@ -77,6 +105,7 @@ def scan(store_conn: sqlite3.Connection, snapshot_path: str | None = None,
         total_msgs = 0
         total_items = 0
         llm_calls = 0
+        junk: dict[str, int] = {}
         per_chat: dict[str, int] = {}
         for chat in chats:
             chat_jid = chat["jid"]
@@ -97,6 +126,12 @@ def scan(store_conn: sqlite3.Connection, snapshot_path: str | None = None,
             total_msgs += len(rows)
             thread = ex.enrich_thread(_to_thread(chat_jid, chat.get("name", ""), rows),
                                       owner_names)
+            verdict, reason = ex.keep_or_junk(thread, owner_names)
+            if verdict == "junk":
+                junk[reason] = junk.get(reason, 0) + 1
+                st.log_event(store_conn, "junk", detail=f"{reason}:{chat_jid}")
+                st.set_cursor(store_conn, chat_jid, str(rows[-1]["rowid"]))
+                continue
             items: list[dict] = []
             if ex.should_call_llm(thread) and llm_fn is not None:
                 llm_calls += 1
@@ -112,6 +147,16 @@ def scan(store_conn: sqlite3.Connection, snapshot_path: str | None = None,
                     raw = dict(raw)
                     raw["chat_jid"] = chat_jid
                     items.append(raw)
+            named = chat.get("name", "") or ""
+            kept = []
+            for item in items:
+                if ex.is_group_name_item(item.get("what", ""), named):
+                    junk["group-name-item"] = junk.get("group-name-item", 0) + 1
+                    st.log_event(store_conn, "junk",
+                                 detail=f"group-name-item:{chat_jid}")
+                else:
+                    kept.append(item)
+            items = kept
             for item in items:
                 st.upsert_item(store_conn, item)
                 if not dry_run and send_fn is not None:
@@ -121,6 +166,6 @@ def scan(store_conn: sqlite3.Connection, snapshot_path: str | None = None,
             st.set_cursor(store_conn, chat_jid, str(rows[-1]["rowid"]))
         return {"chats": len(chats), "messages": total_msgs,
                 "items": total_items, "llm_calls": llm_calls,
-                "per_chat": per_chat}
+                "junk": junk, "per_chat": per_chat}
     finally:
         snap.close()

@@ -195,6 +195,51 @@ def worth_llm(thread: dict) -> bool:
 should_call_llm = worth_llm
 
 
+def keep_or_junk(thread: dict, owner_names: list[str] | None = None) -> tuple[str, str]:
+    """Pipeline junk-or-keep verdict, decided before any LLM spend.
+
+    Junk threads are logged with a reason and skipped; keep threads flow
+    to the LLM/heuristic path. Reasons double as the junk-heap audit trail.
+    """
+    owner_names = owner_names or []
+    msgs = thread.get("msgs", []) or []
+    human = [m for m in msgs if not is_bot_text(m.get("body", ""))]
+    if not human or not any((m.get("body") or "").strip() for m in human):
+        return ("junk", "no-content")
+    if thread.get("all_bot"):
+        return ("junk", "bot-only")
+    bodies = [(m.get("body") or "") for m in human]
+    if thread.get("fyi_only", bool(bodies) and all(
+            is_fyi_link(b) or is_banter(b) for b in bodies)) \
+            and any(is_fyi_link(b) for b in bodies):
+        return ("junk", "fyi")
+    if thread.get("all_banter"):
+        return ("junk", "banter")
+    if _is_broadcast(bodies, owner_names):
+        return ("junk", "broadcast")
+    return ("keep", "signal")
+
+
+def is_group_name_item(what: str, chat_name: str) -> bool:
+    """The LLM echoing the chat title as the item: never actionable."""
+    norm = lambda s: re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+    w, n = norm(what), norm(chat_name)
+    return bool(w) and w == n
+
+
+def _is_broadcast(bodies: list[str], owner_names: list[str]) -> bool:
+    """Announcement + link with no question, no ask, no owner mention."""
+    non_empty = [b for b in bodies if b.strip()]
+    if not non_empty:
+        return False
+    text = " ".join(non_empty)
+    if "?" in text or ASK_RE.search(text) or PROMISE_RE.search(text):
+        return False
+    if any(mentions_owner(b, owner_names) for b in non_empty):
+        return False
+    return any(URL_RE.search(b) for b in non_empty)
+
+
 def heuristic_extract(thread: dict) -> dict | None:
     """No-LLM fallback. Returns None for banter/FYI/bot threads."""
     msgs = thread.get("msgs", [])

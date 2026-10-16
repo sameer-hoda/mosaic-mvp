@@ -5,7 +5,22 @@ test_item_gates, test_pipeline_fp): real gate code, stubbed LLM with a
 call counter — banter threads must not even earn a call.
 """
 
+import sqlite3
+
 from hermes_bot import extract as ex
+
+
+import pytest as _pytest
+
+
+@_pytest.fixture()
+def _store(tmp_path, monkeypatch):
+    from hermes_bot import store as st
+    monkeypatch.setenv("MOSAIC_DATA_DIR", str(tmp_path))
+    c = st.connect()
+    st.init_db(c)
+    yield c
+    c.close()
 
 
 def _thread(bodies, owner_names=None, from_me_flags=None):
@@ -142,3 +157,72 @@ def test_good_imperatives_kept():
     for text in ["Send the deck by EOD", "Need the numbers by EOD",
                  "Proceed with rollout", "Take this forward with Rohan"]:
         assert ex.item_ok(text), text
+
+
+# ── junk-or-keep: explicit pipeline verdict before any LLM spend ─────────────
+
+def test_empty_thread_is_junk_even_from_me():
+    t = _thread(["", "", "", ""], from_me_flags=[True, False, False, False])
+    assert ex.keep_or_junk(t) == ("junk", "no-content")
+
+
+def test_broadcast_announcement_is_junk():
+    t = _thread(["*Updates on bio auth:* IndusInd CC is live :) "
+                 "request all to try https://x.com/finkd/status/2097402101332590646"])
+    assert ex.keep_or_junk(t) == ("junk", "broadcast")
+
+
+def test_banter_only_is_junk():
+    t = _thread(["Haha nice one", "lol agreed"])
+    assert ex.keep_or_junk(t) == ("junk", "banter")
+
+
+def test_fyi_only_is_junk():
+    t = _thread(["FYI https://example.com/some-report"])
+    assert ex.keep_or_junk(t) == ("junk", "fyi")
+
+
+def test_directed_question_is_keep():
+    t = _thread(["please share the SOW today Sam?"], owner_names=["Sam"])
+    assert ex.keep_or_junk(t)[0] == "keep"
+
+
+def test_plain_work_discussion_is_keep():
+    t = _thread(["can we move the launch to Friday",
+                 "need legal signoff first"])
+    assert ex.keep_or_junk(t)[0] == "keep"
+
+
+# ── group-name items: the LLM echoing the chat title is never actionable ────
+
+def test_group_name_item_shapes():
+    assert ex.is_group_name_item("OKR RI", "OKR RI")
+    assert ex.is_group_name_item("Home group ", "Home group")
+    assert ex.is_group_name_item("PO-OKR", "PO OKR")
+    assert not ex.is_group_name_item("Share the SOW today", "Acme launch")
+    assert not ex.is_group_name_item("", "Acme launch")
+    assert not ex.is_group_name_item("OKR RI update", "OKR RI")
+
+
+def test_scan_drops_chat_name_item_but_advances(_store, tmp_path, monkeypatch):
+    from hermes_bot import scanner as sc
+    from hermes_bot import store as st
+    msg = tmp_path / "messages.db"
+    c = sqlite3.connect(str(msg))
+    c.execute("CREATE TABLE chats (jid TEXT, name TEXT, last_message_time TEXT)")
+    c.execute("CREATE TABLE messages (id TEXT, chat_jid TEXT, sender TEXT,"
+              " content TEXT, timestamp TEXT, is_from_me INTEGER)")
+    c.execute("INSERT INTO chats VALUES (?,?,?)",
+              ("99999-1@g.us", "Test Group", "2026-10-15T10:00:00"))
+    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?)", [
+        ("m1", "99999-1@g.us", "Asha", "can we move this to Friday?",
+         "2026-10-15T09:00:00", 0),
+        ("m2", "99999-1@g.us", "Asha", "", "2026-10-15T10:00:00", 0),
+    ])
+    c.commit()
+    c.close()
+    monkeypatch.setattr(sc, "SNAPSHOT_PATH", str(msg))
+    summary = sc.scan(_store, limit_chats=10)
+    assert summary["junk"].get("group-name-item", 0) == 1
+    assert summary["items"] == 0
+    assert st.get_cursor(_store, "99999-1@g.us") != ""

@@ -53,3 +53,32 @@ items 7, 10, 12, 17), broadcast announcements restated as asks
   an item, instead of the current nudge/ask-keyword gate.
 - Treat "announcement + link/form" shapes as FYI-only, and drop items
   whose `what` is a group name or starts with `- `/quote fragments.
+
+## Rerun 2026-10-16 — non-archived chats only
+
+Scanner, ping evaluator, and ping dry-run script now exclude chats with
+`archived = 1` in `whatsmeow_chat_settings` (sibling `whatsapp.db`).
+Sample: 100 most-recent non-archived group chats, 19,802 messages
+(vs 49,560 before — 60% of scanned volume was archived noise),
+132 items, 30 live calls, $0.01, 3 pings would-fire, zero sends.
+
+Fresh 20-item audit (seed 7, judged against real threads; keyword hits
+deeper in thread confirmed items 5, 7, 11, 16, 18 as grounded):
+17/20 keep, 3/20 junk = 15% ≈ 0.75 per 5-item brief. Target MET.
+Remaining junk: empty/group-name items (OKR RI, Home group) and one
+broadcast tracker (Bio-Auth). Next: drop items whose thread has no
+text content, and gate broadcast shapes harder.
+
+## Rerun 2026-10-16 — junk-or-keep gate in the pipeline
+
+`extract.keep_or_junk` now verdicts every thread before any LLM spend
+(no-content / bot-only / fyi / banter / broadcast → junk, logged with
+reason to `event_log`; keep → LLM/heuristic), and `scan` drops any item
+whose text equals its chat name (`is_group_name_item`). Committed tests
+cover each verdict plus scan-level drop with cursor advance.
+Sample: same 100 non-archived chats, 19,802 messages, 119 items,
+18 group-name items intercepted and logged, zero name-matches survive,
+$0.01, zero sends.
+Fresh 20-item audit (seed 11; ambiguous items grounded by keyword hits:
+offers x9, goa/flight x3/23, croma/iphone x3/1): 19/20 keep, 1/20 junk
+(meta-ads FYI to someone else) = 5% ≈ 0.25 per brief. Target MET.

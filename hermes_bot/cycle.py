@@ -43,15 +43,17 @@ def eval_pings(store_conn: sqlite3.Connection, snap_conn: sqlite3.Connection,
     Count-only: never sends, never writes to the snapshot.
     """
     from hermes_bot import pings as pg
+    from hermes_bot import scanner as sc
     from hermes_bot import store as st
 
     now = now or datetime.datetime.now().astimezone()
     try:
-        chats = snap_conn.execute(
-            "SELECT jid FROM chats WHERE jid LIKE '%@g.us' "
-            "ORDER BY last_message_time DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        excluded = sc.archived_jids(snap_conn)
+        chats = [
+            r for r in snap_conn.execute(
+                "SELECT jid FROM chats WHERE jid LIKE '%@g.us' "
+                "ORDER BY last_message_time DESC").fetchall()
+            if r[0] not in excluded][:limit]
     except Exception:
         return {"fired": 0, "suppressed": {"error": 1}}
     fired = 0

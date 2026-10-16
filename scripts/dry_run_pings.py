@@ -21,6 +21,7 @@ os.environ.setdefault("MOSAIC_DATA_DIR", _tmp)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hermes_bot import pings as pg  # noqa: E402
+from hermes_bot import scanner as sc  # noqa: E402
 from hermes_bot import store as st  # noqa: E402
 
 
@@ -44,9 +45,12 @@ def main() -> None:
     owner_phone = _owner_phone()
     tokens = tuple(t for t in (owner_phone,) if t)
 
-    chats = snap.execute(
-        "SELECT jid FROM chats WHERE jid LIKE '%@g.us' "
-        "ORDER BY last_message_time DESC LIMIT 20").fetchall()
+    excluded = sc.archived_jids(snap)
+    chats = [
+        r for r in snap.execute(
+            "SELECT jid FROM chats WHERE jid LIKE '%@g.us' "
+            "ORDER BY last_message_time DESC").fetchall()
+        if r[0] not in excluded][:20]
 
     fired, suppressed = 0, {}
     for (jid,) in chats:

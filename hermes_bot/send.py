@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Send NB: yes-gated confirmed sends to contacts only.
+"""Send NB: yes-gated confirmed sends. DMs need contact + owner history;
+groups need owner history (you have written there). Never without `yes`.
 
 ``send 2B`` shows a confirm screen naming the exact chat + text. Only
 ``yes`` within 5 minutes sends; anything else cancels. Guards: never a
@@ -77,13 +78,13 @@ class SendEngine:
         dest = target.get("chat_jid", "")
         name = target.get("chat_name") or dest
         body = target.get("text", "")
-        if dest.endswith("@g.us"):
-            return "rejected-group"
-        try:
-            if not self._is_contact(dest):
+        is_group = dest.endswith("@g.us")
+        if not is_group:
+            try:
+                if not self._is_contact(dest):
+                    return "rejected-non-contact"
+            except Exception:
                 return "rejected-non-contact"
-        except Exception:
-            return "rejected-non-contact"
         try:
             if not self._owner_wrote(dest):
                 return "rejected-no-owner-history"
