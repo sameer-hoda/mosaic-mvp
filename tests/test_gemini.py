@@ -99,3 +99,27 @@ def test_missing_key_is_fail_open(store_conn, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     got = gm.extract_items("hello", store_conn=store_conn)
     assert got == {"items": []}
+
+
+def test_env_key_wins_over_saved_file(monkeypatch, tmp_path):
+    from hermes_bot import config as cfg
+    import json
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(json.dumps({"gemini_api_key": "saved-key"}))
+    monkeypatch.setattr(cfg, "CONFIG_FILE", str(cfg_file))
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key")
+    import hermes_bot.gemini as gm
+    assert gm.get_api_key() == "env-key"
+
+
+def test_saved_key_used_when_env_missing_and_reread_live(monkeypatch, tmp_path):
+    from hermes_bot import config as cfg
+    import json
+    import hermes_bot.gemini as gm
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(json.dumps({"gemini_api_key": "saved-key"}))
+    monkeypatch.setattr(cfg, "CONFIG_FILE", str(cfg_file))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert gm.get_api_key() == "saved-key"
+    cfg_file.write_text(json.dumps({"gemini_api_key": "rotated-key"}))
+    assert gm.get_api_key() == "rotated-key"

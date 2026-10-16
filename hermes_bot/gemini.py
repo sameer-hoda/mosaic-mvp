@@ -1,7 +1,8 @@
 """Gemini Flash-Lite client for extraction.
 
 Model: gemini-3.5-flash-lite (override via GEMINI_MODEL env).
-Key: env GEMINI_API_KEY only. The key is NEVER printed, logged, or
+Key: env GEMINI_API_KEY first, else the wizard-saved key (live re-read).
+The key is NEVER printed, logged, or
 stored — tests use fake keys and event_log rows carry only the model
 name plus token counts.
 """
@@ -63,7 +64,9 @@ def model_name() -> str:
 
 
 def get_api_key() -> str:
-    return os.getenv("GEMINI_API_KEY", "")
+    """Env wins; falls back to the wizard-saved key, re-read live."""
+    from hermes_bot import config as _config
+    return os.getenv("GEMINI_API_KEY", "") or _config.read_saved_gemini_key()
 
 
 def _build_client(api_key: str):

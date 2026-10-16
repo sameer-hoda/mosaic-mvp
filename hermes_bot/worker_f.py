@@ -76,7 +76,8 @@ def handle_event(chat_jid: str, sender_jid: str, content: str,
 
     is_owner = _db.is_message_from_owner(chat_jid, sender_jid)
     self_jid = resolve_self_jid() or ""
-    from_self = bool(self_jid) and chat_jid == self_jid
+    from_self = bool(self_jid) and (
+        chat_jid == self_jid or _is_self_chat_spelling(chat_jid, sender_jid))
 
     conn = _store.connect()
     try:
@@ -97,6 +98,18 @@ def handle_event(chat_jid: str, sender_jid: str, content: str,
                 outcome = engine.handle_event(chat_jid, sender_jid, text)
                 if outcome != "ignored":
                     return outcome
+            # ── pulse / done / later / more / quiet (owner self-chat) ──
+            if from_self:
+                from hermes_bot import briefs as _briefs
+                from hermes_bot import store as _st2
+                try:
+                    latest = int(_st2.config_get(conn, "brief_no", "0") or 0)
+                except ValueError:
+                    latest = 0
+                reply = _briefs.parse_command(conn, text, latest)
+                if reply is not None:
+                    enqueue_to_mechat(reply)
+                    return "brief-sent"
 
         # ── real-time ping over thread messages ──
         if not from_self and not text.startswith("/"):
@@ -107,6 +120,21 @@ def handle_event(chat_jid: str, sender_jid: str, content: str,
             conn.close()
         except Exception:
             pass
+
+
+def _is_self_chat_spelling(chat_jid: str, sender_jid: str) -> bool:
+    """Accept the other self-chat spelling (LID vs PN, fix 6).
+
+    True only when both chat and sender resolve to the owner: groups
+    and DMs with anyone else stay excluded, per identity.py's contract.
+    """
+    from hermes_bot import identity as _ident
+    if not chat_jid or not sender_jid:
+        return False
+    if "@g.us" in chat_jid:
+        return False
+    return bool(_ident.is_owner_jid(chat_jid) and
+                _ident.is_owner_jid(sender_jid))
 
 
 def _has_pending_for(engine, chat_jid: str, self_jid: str) -> bool:
@@ -186,10 +214,20 @@ def _build_send_engine(conn, enqueue_message):
         except Exception:
             return False
 
+    def _engine_enqueue(jid: str, text: str) -> None:
+        # The engine only addresses a group from _confirm, i.e. after an
+        # explicit `yes` with owner history and cap checks. Every other
+        # caller of sender.enqueue_message keeps the strict default.
+        try:
+            enqueue_message(jid, text, via_confirmed_yes=True)
+        except TypeError:
+            # Older two-arg doubles in tests.
+            enqueue_message(jid, text)
+
     return _send.SendEngine(
         is_owner=_db.is_message_from_owner,
         self_jid=resolve_self_jid() or "",
-        enqueue=enqueue_message,
+        enqueue=_engine_enqueue,
         is_contact=_is_contact,
         owner_wrote_in_chat=_owner_wrote,
         sends_today=lambda: count_today(conn, "send"),

@@ -65,3 +65,50 @@ def test_group_banter_suppresses_ping(hooked):
                                     "random banter lol")
     assert outcome == "ping-suppressed-not-direct"
     assert hooked == []
+
+
+def test_pulse_wired_in_live_path(hooked):
+    outcome = worker_f.handle_event("self@s.whatsapp.net",
+                                    "owner@s.whatsapp.net", "pulse")
+    assert outcome == "brief-sent"
+    assert hooked and isinstance(hooked[0], str) and hooked[0]
+
+
+def test_done_wired_in_live_path(hooked):
+    from hermes_bot import store as st
+    conn = st.connect()
+    try:
+        st.config_set(conn, "brief_no", "5")
+    finally:
+        conn.close()
+    outcome = worker_f.handle_event("self@s.whatsapp.net",
+                                    "owner@s.whatsapp.net", "done 2")
+    assert outcome == "brief-sent"
+    assert hooked and "Done" in hooked[-1]
+
+
+def _owner_pair(monkeypatch):
+    from hermes_bot import identity as ident
+    monkeypatch.setattr(ident, "own_identity",
+                        lambda session_db=None: ("919999999999", "12345", "test"))
+
+
+def test_self_chat_other_spelling_accepted(monkeypatch):
+    _owner_pair(monkeypatch)
+    from hermes_bot import worker_f
+    assert worker_f._is_self_chat_spelling("12345@lid",
+                                           "919999999999@s.whatsapp.net")
+
+
+def test_group_chat_never_self_spelling(monkeypatch):
+    _owner_pair(monkeypatch)
+    from hermes_bot import worker_f
+    assert not worker_f._is_self_chat_spelling("120363111111111111@g.us",
+                                               "919999999999@s.whatsapp.net")
+
+
+def test_stranger_dm_never_self_spelling(monkeypatch):
+    _owner_pair(monkeypatch)
+    from hermes_bot import worker_f
+    assert not worker_f._is_self_chat_spelling("918888888888@s.whatsapp.net",
+                                               "918888888888@s.whatsapp.net")

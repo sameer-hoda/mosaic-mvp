@@ -1397,12 +1397,13 @@ func handleGeminiKey(w http.ResponseWriter, r *http.Request) {
 	if setupData.State == string(StateNeedsAPIKey) {
 		setupData.State = string(StateNeedsQR)
 	}
+	setupData.State = string(resolveStateLocked())
 	setupData.UpdatedAt = time.Now().Format(time.RFC3339)
 	saveSetupLocked()
 	setupMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "state": string(StateNeedsQR)})
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "state": setupData.State})
 }
 
 func handlePairingRegenerate(w http.ResponseWriter, r *http.Request) {

@@ -39,3 +39,11 @@ def test_no_pairing_or_group_ui():
     assert "mosaic-" not in src
     assert "re-pair" not in src and "repair-mechat" not in src
     assert "g.us" not in src
+
+
+def test_gemini_key_form_posts_to_endpoint():
+    src = _src()
+    assert 'id="gemini-key-input"' in src
+    assert 'type="password"' in src
+    assert "/setup/gemini-key" in src
+    assert "doSaveGeminiKey" in src

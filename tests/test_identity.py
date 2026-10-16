@@ -82,3 +82,35 @@ def test_resolve_self_chat_pn_wins_when_fresher(tmp_path):
     ])
     jid, _ = ident.resolve_self_chat(mdb, sdb)
     assert jid == PN_JID
+
+
+def test_session_device_lid_honored_without_map(monkeypatch, tmp_path):
+    import sqlite3
+    import hermes_bot.identity as ident
+    sdb = tmp_path / "session.db"
+    c = sqlite3.connect(str(sdb))
+    c.execute("CREATE TABLE whatsmeow_device (jid TEXT, lid TEXT)")
+    c.execute("CREATE TABLE whatsmeow_lid_map (lid TEXT, pn TEXT)")
+    c.execute("INSERT INTO whatsmeow_device VALUES (?,?)",
+              ("919999999999@s.whatsapp.net", "12345@lid"))
+    c.commit()
+    c.close()
+    assert ident.is_owner_jid("12345@lid", str(sdb))
+    assert ident.is_owner_jid("919999999999@s.whatsapp.net", str(sdb))
+
+
+def test_unrelated_mapped_phone_not_owner(monkeypatch, tmp_path):
+    import sqlite3
+    import hermes_bot.identity as ident
+    sdb = tmp_path / "session.db"
+    c = sqlite3.connect(str(sdb))
+    c.execute("CREATE TABLE whatsmeow_device (jid TEXT, lid TEXT)")
+    c.execute("CREATE TABLE whatsmeow_lid_map (lid TEXT, pn TEXT)")
+    c.execute("INSERT INTO whatsmeow_device VALUES (?,?)",
+              ("919999999999@s.whatsapp.net", "12345@lid"))
+    c.execute("INSERT INTO whatsmeow_lid_map VALUES (?,?)",
+              ("99999@lid", "918888888888"))
+    c.commit()
+    c.close()
+    assert not ident.is_owner_jid("918888888888@s.whatsapp.net", str(sdb))
+    assert not ident.is_owner_jid("99999@lid", str(sdb))

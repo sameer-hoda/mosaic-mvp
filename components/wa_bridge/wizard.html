@@ -64,6 +64,11 @@ input:focus { border-color: #58a6ff; }
     <div id="bridge-status" class="status"><span class="dot dot-off"></span>Bridge: checking…</div>
     <img id="qr-img" class="qr-img hidden" src="" alt="Scan with WhatsApp">
     <div id="gemini-tick" class="tick">Gemini key: checking…</div>
+    <div id="gemini-form" class="hidden">
+      <input type="password" id="gemini-key-input" placeholder="Paste Gemini API key" autocomplete="off">
+      <div id="gemini-key-error" class="alert alert-error hidden"></div>
+      <button class="btn btn-primary" onclick="doSaveGeminiKey()">Save key</button>
+    </div>
   </div>
 
   <div id="view-connected" class="card hidden">
@@ -107,6 +112,16 @@ function doLogin() {
   });
 }
 
+function doSaveGeminiKey() {
+  var input = document.getElementById('gemini-key-input');
+  var err = document.getElementById('gemini-key-error');
+  err.classList.add('hidden');
+  api('/setup/gemini-key', 'POST', {api_key: input.value}).then(function(data) {
+    if (data.ok) { input.value = ''; pollState(); }
+    else { err.textContent = data.error || 'Invalid key'; err.classList.remove('hidden'); }
+  });
+}
+
 function doUnlink() {
   var btn = document.getElementById('unlink-btn');
   btn.disabled = true; btn.textContent = 'Unlinking…';
@@ -137,12 +152,15 @@ function pollState() {
     if (data.qr_data_url) { qr.src = data.qr_data_url; qr.classList.remove('hidden'); }
     else { qr.classList.add('hidden'); }
     var tick = document.getElementById('gemini-tick');
+    var form = document.getElementById('gemini-form');
     if (data.gemini_key_set) {
       tick.textContent = 'Gemini key: valid ✓';
       tick.classList.remove('tick-missing');
+      form.classList.add('hidden');
     } else {
-      tick.textContent = 'Gemini key: missing — set it via env';
+      tick.textContent = 'Gemini key: missing — paste it below';
       tick.classList.add('tick-missing');
+      form.classList.remove('hidden');
     }
   }).catch(function() {});
 }

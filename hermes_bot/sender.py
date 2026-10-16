@@ -26,8 +26,8 @@ def _get_outbox_db():
     return conn
 
 
-def enqueue_message(jid: str, text: str):
-    if jid.endswith("@g.us"):
+def enqueue_message(jid: str, text: str, *, via_confirmed_yes: bool = False):
+    if jid.endswith("@g.us") and not via_confirmed_yes:
         raise ValueError(f"refusing to address a group chat: {jid}")
     conn = _get_outbox_db()
     conn.execute(
@@ -80,9 +80,9 @@ def flush_pending():
                 )
                 sent_count += 1
             else:
-                _handle_failure(conn, msg_id, attempts)
+                _handle_failure(conn, msg_id, jid, attempts)
         except Exception:
-            _handle_failure(conn, msg_id, attempts)
+            _handle_failure(conn, msg_id, jid, attempts)
 
     conn.commit()
     conn.close()
@@ -91,10 +91,15 @@ def flush_pending():
         print(f"[sender] Flushed {sent_count} pending message(s)")
 
 
-def _handle_failure(conn, msg_id, attempts):
+def _handle_failure(conn, msg_id, jid, attempts):
+    import logging
     new_attempts = attempts + 1
     if new_attempts >= 3:
         conn.execute("DELETE FROM outbox WHERE id = ?", (msg_id,))
+        # Destination only — message text is never logged.
+        logging.getLogger("mosaic.sender").warning(
+            "sender: dropping message for %s after %d failed flushes",
+            jid, new_attempts)
     else:
         conn.execute(
             "UPDATE outbox SET attempts = ? WHERE id = ?",

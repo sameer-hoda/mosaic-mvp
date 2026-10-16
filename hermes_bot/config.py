@@ -61,6 +61,16 @@ OWNER_PHONE = (
 MECHAT_JID = os.getenv("MECHAT_JID", "").strip() or _setup.get("mechat_jid", "")
 
 # ── LLM ──────────────────────────────────────────────────────────────────────
+def read_saved_gemini_key() -> str:
+    """Fresh read of the wizard-saved key (config.json), never cached."""
+    try:
+        data = json.loads(Path(CONFIG_FILE).read_text())
+    except Exception:
+        return ""
+    key = data.get("gemini_api_key", "")
+    return key.strip() if isinstance(key, str) else ""
+
+
 GEMINI_API_KEY = (
     os.getenv("GEMINI_API_KEY", "")
     or _config.get("gemini_api_key", "")

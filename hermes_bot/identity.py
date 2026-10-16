@@ -62,10 +62,12 @@ def is_owner_jid(jid, session_db=None):
     user = _split_user(jid)
     if not user or "@g.us" in (jid or "") or (jid or "") == "status@broadcast":
         return False
-    phone, _lid, _src = own_identity(session_db)
+    phone, lid, _src = own_identity(session_db)
     if not phone:
         return False
     if user == phone:
+        return True
+    if lid and user == lid:
         return True
     try:
         con = sqlite3.connect(f"file:{_session_db(session_db)}?mode=ro", uri=True)
@@ -80,7 +82,9 @@ def is_owner_jid(jid, session_db=None):
                 "SELECT lid FROM whatsmeow_lid_map WHERE pn = ? OR pn LIKE ?",
                 (user, f"{user}:%"),
             ).fetchone()
-            if row:
+            # Narrow: a mapped LID counts only when it is the owner's own
+            # LID — never any phone that happens to have a map row.
+            if row and lid and _split_user(row[0]) == lid:
                 return True
         finally:
             con.close()

@@ -1,4 +1,4 @@
-FROM golang:1.25-bookworm AS gobuild
+FROM golang:1.26-bookworm AS gobuild
 WORKDIR /src/components/wa_bridge
 COPY components/wa_bridge/go.mod components/wa_bridge/go.sum ./
 RUN go mod download

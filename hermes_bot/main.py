@@ -45,35 +45,77 @@ def _owner_names() -> list:
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
+def _start_brain_server():
+    """Serve the bridge event hook in-process (fix 4).
+
+    Railway runs the brain as a separate supervisord process; if the
+    port is already owned there, binding fails and we skip quietly.
+    """
+    from http.server import HTTPServer
+    from hermes_bot import brain as _brain
+    try:
+        port = int(os.getenv("BRAIN_PORT", "7000") or 7000)
+    except ValueError:
+        port = 7000
+    try:
+        server = HTTPServer(("127.0.0.1", port), _brain.Handler)
+    except OSError as exc:
+        print(f"[mosaic] brain hook not started ({exc}); "
+              f"assuming a separate brain owns :{port}.", flush=True)
+        return None
+    threading.Thread(target=server.serve_forever, daemon=True,
+                     name="mosaic-brain").start()
+    print(f"[mosaic] brain event hook on 127.0.0.1:{port}/event.", flush=True)
+    return server
+
+
+def _run_cycle_once():
+    """One scan → extract → brief pass plus a cycle heartbeat row.
+
+    Returns the cycle report, or None when the pass was skipped.
+    """
+    try:
+        conn = _store.connect()
+        _store.init_db(conn)
+        try:
+            live = os.getenv("MOSAIC_LIVE", "") == "1"
+            report = _cycle.run_cycle(
+                conn, owner_names=_owner_names(), dry_run=not live,
+                deliver=enqueue_to_mechat if live else None)
+            print(
+                "[mosaic] cycle: "
+                f"{report['messages']} msgs, {report['items']} items, "
+                f"brief #{report['brief_no']} "
+                f"({'delivered' if report['delivered'] else 'dry-run'})",
+                flush=True)
+            _store.log_event(
+                conn, "cycle",
+                detail=(f"msgs={report['messages']} "
+                        f"items={report['items']} "
+                        f"brief={report['brief_no']}"))
+            return report
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[mosaic] cycle skipped ({exc})", flush=True)
+        return None
+
+
 def _cycle_loop():
     """Periodic scan → extract → brief → draft pass.
 
-    Dry-run unless MOSAIC_LIVE=1: the brief text is only enqueued to
-    self-chat when live, otherwise it is logged print-only. Any failure
-    is logged and the loop continues on the next tick.
+    Runs once immediately, then every interval. Dry-run unless
+    MOSAIC_LIVE=1: the brief text is only enqueued to self-chat when
+    live, otherwise it is logged print-only. Any failure is logged and
+    the loop continues on the next tick.
     """
     while _running:
+        _run_cycle_once()
+        if not _running:
+            break
         time.sleep(_cycle.cycle_interval_s())
         if not _running:
             break
-        try:
-            conn = _store.connect()
-            _store.init_db(conn)
-            try:
-                live = os.getenv("MOSAIC_LIVE", "") == "1"
-                report = _cycle.run_cycle(
-                    conn, owner_names=_owner_names(), dry_run=not live,
-                    deliver=enqueue_to_mechat if live else None)
-                print(
-                    "[mosaic] cycle: "
-                    f"{report['messages']} msgs, {report['items']} items, "
-                    f"brief #{report['brief_no']} "
-                    f"({'delivered' if report['delivered'] else 'dry-run'})",
-                    flush=True)
-            finally:
-                conn.close()
-        except Exception as exc:
-            print(f"[mosaic] cycle skipped ({exc})", flush=True)
 
 
 def _drain_bridge_output(proc):
@@ -129,6 +171,7 @@ def main():
 
     print("[mosaic] Bridge ready. Starting services...")
     start_flush_thread()
+    _start_brain_server()
     _startup_prune()
 
     if _cycle.cycle_enabled():

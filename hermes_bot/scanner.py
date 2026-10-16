@@ -12,7 +12,13 @@ from hermes_bot import extract as ex
 from hermes_bot import store as st
 
 SNAPSHOT_PATH = "/tmp/mosaic-test/messages.db"
+SNAPSHOT_ENV_VAR = "MOSAIC_SNAPSHOT_PATH"
 WHATSAPP_DB_NAME = "whatsapp.db"
+
+
+def snapshot_path() -> str:
+    """Configured snapshot, overridable for live stores (fix 8/10)."""
+    return os.getenv(SNAPSHOT_ENV_VAR) or SNAPSHOT_PATH
 
 
 def archived_jids(snap_conn: sqlite3.Connection) -> set[str]:
@@ -42,8 +48,9 @@ def archived_jids(snap_conn: sqlite3.Connection) -> set[str]:
 
 
 def open_snapshot(path: str | None = None) -> sqlite3.Connection:
-    target = path or SNAPSHOT_PATH
-    if target != SNAPSHOT_PATH:
+    target = path or snapshot_path()
+    allowed = {SNAPSHOT_PATH, snapshot_path()}
+    if target not in allowed:
         raise ValueError(f"refusing to open non-snapshot db: {target}")
     conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row

@@ -12,7 +12,9 @@ unless `MOSAIC_LIVE=1`).
 ## 5-minute promise (no phone needed)
 
 Clone, install, and see a real morning brief built from the bundled
-test snapshot — all read-only, zero sends, zero pairing:
+test snapshot — all read-only, zero sends, zero pairing. No snapshot
+ships in the repo, so the suite builds a synthetic one on first run
+(`scripts/ensure_test_snapshot.py` — never overwrites real data):
 
 ```sh
 python3 -m venv .venv
@@ -21,6 +23,7 @@ pip install -r hermes_bot/requirements.txt \
             -r components/wa_slash_commands/requirements.txt
 pip install pytest
 python -m pytest tests/ -q
+python scripts/ensure_test_snapshot.py  # explicit rebuild, optional
 python scripts/morning_brief_dryrun.py
 ```
 
@@ -45,8 +48,9 @@ GEMINI_API_KEY=<your-key> python scripts/e2e_dry_run.py
 - **Draft** (`draft.py`): three grounded A/B/C options per brief item —
   any date/number not already in the thread is flagged, never invented.
 - **Send** (`send.py`): `send NB` shows a confirm screen naming the
-  exact chat + text; only `yes` within 5 minutes sends. Never a group,
-  never a non-contact, never a chat you never wrote in.
+  exact chat + text; only `yes` within 5 minutes sends. DMs need
+  contact + owner history; groups need owner history (you have written
+  there). Never without `yes`, max 30 sends/day.
 - **Pings** (`pings.py`): one line + `draft N`, only when a message
   directly addresses you, you've been silent 20 min, the chat is
   unmuted, and it's outside quiet hours (max 6/day).
@@ -63,6 +67,7 @@ GEMINI_API_KEY=<your-key> python scripts/e2e_dry_run.py
 | `python scripts/dry_run_pings.py` | ping-rule decisions over 20 chats |
 | `python scripts/morning_brief_dryrun.py [--owner Sam]` | one printed morning brief |
 | `GEMINI_API_KEY=... python scripts/e2e_dry_run.py` | 100 chats, brief, ping eval, sample draft, tokens + cost |
+| `MOSAIC_DATA_DIR=... python scripts/watch_mosaic.py` | read-only pipeline watcher: cycle, inbox, keep/junk, outbox |
 
 Every script is print-only: the snapshot is never written to, the
 throwaway `mosaic.db` lives in a temp dir, and `e2e_dry_run.py`
@@ -89,8 +94,8 @@ never printed, logged, or committed (tests use fake keys).
 - `yes`-confirmed sends to contacts (`MOSAIC_LIVE=1`).
 - Owner-name resolution from the live session store (dry-run derives
   only the owner phone from message metadata).
-- Precision is 13/20 keep right now (see `docs/PRECISION.md`) — the
-  brief still carries ~1–2 junk items; the follow-ups listed there are
+- Precision is 19/20 keep right now (see `docs/PRECISION.md`) — the
+  brief still carries ~0.25 junk items; the follow-ups listed there are
   open.
 
 ## Base

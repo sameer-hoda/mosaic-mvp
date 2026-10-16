@@ -39,6 +39,9 @@ def _fixture_dbs(tmp_path, monkeypatch):
     monkeypatch.setattr("hermes_bot.config.MESSAGES_DB", str(mdb))
     monkeypatch.setattr("hermes_bot.config.WHATSAPP_DB", str(sdb))
     monkeypatch.setattr("hermes_bot.config.MECHAT_JID", "")
+    # A real paired setup.json must never leak into these tests.
+    monkeypatch.setattr("hermes_bot.config.SETUP_FILE",
+                        str(tmp_path / "setup.json"))
     monkeypatch.setattr("hermes_bot.config.OWNER_PHONE", "")
     return mdb, sdb
 
